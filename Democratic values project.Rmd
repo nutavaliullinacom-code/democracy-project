@@ -1,0 +1,127 @@
+---
+title: "Democratic Values Project"
+author: "Anna Valiullina"
+date: "2026-09-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-libraries}
+library(foreign)
+library(dplyr)
+library(stringr)
+library(tidyr)
+```
+
+In this section, I open the LITS data for 2016 and prepare it for the analytical section. As the subject of the study is the countries that were part of the socialist bloc, I needed to exclude observations for certain countries from the dataset. 
+
+```{r load-data}
+df <- read.spss("/Users/annavaliullina/Desktop/democarcy research/LITS_2016_III.sav",
+                to.data.frame = TRUE,
+                reencode = "utf-8") 
+df_filtered <- df %>%
+  mutate(country = str_remove_all(country, '["]') %>% str_trim()) %>%
+  mutate(country = case_when(
+    country == "Azerbaij" ~ "Azerbaijan",
+    country == "Bosnia a" ~ "Bosnia and Herzegovina",
+    country == "Czech Re" ~ "Czech Republic", 
+    country == "FYR Mace" ~ "FYR Macedonia",
+    country == "Kazakhst" ~ "Kazakhstan",
+    country == "Kyrgyz R" ~ "Kyrgyz Republic",
+    country == "Lithuani" ~ "Lithuania",
+    country == "Monteneg" ~ "Montenegro",
+    country == "Slovak R" ~ "Slovak Republic",
+    country == "Tajikist" ~ "Tajikistan",
+    country == "Uzbekist" ~ "Uzbekistan",
+    TRUE ~ country
+  )) %>%
+  filter(!country %in% c("Cyprus", "Greece", "Italy", "Germany"))
+```
+
+My task was to carry out a factor analysis of the variables relating to democratic values.To begin with, I needed to remove any missing responses from the main variables.
+```{r preparing variables}
+vars <- c("q414a", "q414b", "q414c", "q414d", "q414e", "q414f", "q414g", "q414h")
+for (var in vars) {
+  clean_var <- paste0(var, "_clean")
+  df_filtered[[clean_var]] <- ifelse(df_filtered[[var]] %in% 1:5, df_filtered[[var]], NA)
+}
+head(df_filtered[c(vars, paste0(vars, "_clean"))])
+```
+Once the data had been prepared, I was able to proceed with the factor analysis. As a first step, I carried out an exploratory factor analysis in order to examine the structure of the data and assess the suitability of conducting a factor analysis. 
+```{r exploratory factor analysis}
+fa_data <- df_filtered %>%
+  select(
+    q414a_clean,
+    q414b_clean,  
+    q414c_clean,  
+    q414d_clean,  
+    q414e_clean,  
+    q414f_clean,  
+    q414g_clean,
+    q414h_clean 
+  ) %>%
+  drop_na()
+
+corr <- cor(fa_data, method = "spearman")
+print(round(corr, 2))
+```
+An analysis of Spearman’s rank correlation matrix revealed the existence of moderate and strong positive correlations between all indicators of democratic values
+```{r KMO}
+library(psych)
+KMO(fa_data)
+```
+To assess the suitability of the data for factor analysis, the Kaiser–Meyer–Olkin (KMO) test was performed. The Overall MSA was 0.94, which, in accordance with generally accepted criteria, is interpreted as an ‘marvelous’ value (> 0.90). The individual MSA values for each item (q414a_clean – q414h_clean) ranged from 0.92 to 0.96, which significantly exceeds the minimum acceptable threshold (0.50).
+```{r VSS}
+VSS.scree(corr)
+```
+Although Kaiser’s formal criterion (eigenvalue > 1) indicates a single dominant component, the rocky scree plot and content validity made it possible to identify two theoretically grounded factors.
+```{r EFA}
+efa1 <- fa(r = corr, nfactors = 2, fm = "pa", rotate = "varimax")
+efa1
+print(efa1$loadings, cutoff=0.3)
+```
+Based on the results of the exploratory factor analysis, the first factor (PA1), which reflects institutional and procedural aspects, comprises the variables ‘Law and Order’ (loadings 0.81), ‘Peace and stability’ (0.80), ‘An equitable judicial system’ (0.71) and ‘Free and fair elections’ (0.67). The second factor (PA2), relating to civil liberties, comprises the variables ‘Independent press’ (loadings 0.77) and ‘Strong opposition’ (0.73). At the same time, the variables ‘freedom of speech’ (0.59 and 0.60) and ‘equal rights for women’ (0.61 and 0.54) demonstrate pronounced cross-loadings, being distributed between both factors.
+After that, I can move on to the section on confirmatory factor analysis. 
+```{r confirmatory factor analysis}
+library(lavaan)
+library(semPlot)
+cfa_democracy <- 'Inst_Order =~ q414a_clean + q414b_clean + q414d_clean + q414g_clean
+  Lib_Freedoms =~ q414e_clean + q414f_clean'
+fit_cfa <- cfa(cfa_democracy, data = fa_data, estimator = "ML")
+summary(fit_cfa, fit.measures = TRUE, standardized = TRUE)
+```
+
+As the number of degrees of freedom is positive, the model is identified, which makes it empirically testable. SRMR is 0.015 (which is significantly below the strict threshold of 0.05), confirming minimal error in the reproduction of the correlation matrix. The RMSEA (0.061) is slightly above the ideal value (0.05), but falls within the acceptable range (less than 0.08), indicating acceptable approximation quality.
+
+```{r visualisation}
+library(semPlot)
+semPaths(fit_cfa, 
+         what = "std",       
+         rotation = 2,       
+         nodeLabels = c(
+           
+           "Free and fair\nelections",                                            
+           "Law and order",                                                         
+           "Peace and\nstability",                                                   
+           "A courts system that\ntreats all citizens equally",                    
+           "A press independent\nfrom the government",                            
+           "A strong political\nopposition",                                       
+           
+      
+           "Institutional\nOrder", 
+           "Liberal\nFreedoms"
+         ), 
+         colFactor = 0,        
+         sizeMan = 10,         
+         sizeMan2 = 6,         
+         sizeLat = 12,         
+         edge.color = "black", 
+         edge.label.cex = 0.9, 
+         esize = 1,            
+         mar = c(3, 8, 3, 8)   
+)
+```
+Thus, the factor analysis of democratic values identified two factors that differ substantially in terms of content; these can subsequently be used to analyse differences in the perception of democracy across different countries, including as dependent variables in regression analyses. 
